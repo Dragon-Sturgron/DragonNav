@@ -1,249 +1,135 @@
-# 龙鲟导航 - EdgeOne Makers + KV 后台版
+# DragonNav V3 - EdgeOne Makers + KV
 
-## 已实现
+## V3 更新
 
-- 首页搜索引擎：必应、百度、Google、搜狗、DuckDuckGo。
-- 下方网站改成“图标在上、名称在下”的按钮式导航。
-- 点击网站按钮在新标签页打开。
-- 网站图标支持后台填写自定义图标 URL。
-- 图标 URL 留空时，前台自动尝试读取该网站的 `/favicon.ico`。
-- 后台管理地址由环境变量 `ADMIN_PATH` 控制，例如 `ADMIN_PATH=dragonadmin` 时访问 `https://你的域名/dragonadmin`
-- 后台管理网站：
-  - 新增
-  - 编辑
-  - 删除
-  - 启用 / 停用
-  - 调整排序
-  - 修改分类
-  - 设置网站图标
-- 后台管理分类：
-  - 新增
-  - 删除
-  - 改名
-  - 排序
-  - 启用 / 停用
-- 首页设置：
-  - 网站标题
-  - 副标题
-  - “首页最多显示网站数”
-  - `0` 代表显示所有启用的网站
-- 所有导航配置保存到 EdgeOne Makers KV。
-- 后台账号密码使用 Makers 环境变量，不写在前端代码里。
-- 后台登录成功后使用 12 小时签名 Token。
+后台结构已调整为“分类管理 → 分类网站管理”两层。
 
-## 项目结构
+### 分类管理
 
-```text
-edgeone-makers-nav-kv/
-├─ index.html
-├─ README.md
-└─ edge-functions/
-   └─ api/
-      ├─ config.js
-      └─ login.js
-```
+- 取消“排序”数字列。
+- 分类顺序直接通过拖拽左侧 `☰` 手柄调整。
+- 点击“分类名称”进入该分类的网站管理页面。
+- 显示每个分类当前的网站数量。
+- 保留启用 / 停用、编辑名称、删除分类。
 
-当前 Makers 文档推荐使用 `edge-functions/` 创建 Edge Functions。项目可以通过文件夹 / ZIP 上传，也可以通过 GitHub / Gitee 导入。
+### 网站管理
 
-## 一、部署项目
+- 不再与分类管理放在同一个页面。
+- 点击分类名称后进入该分类的网站管理。
+- 只显示当前分类的网站。
+- 取消“排序”数字列和网站编辑弹窗里的排序字段。
+- 网站顺序通过拖拽左侧 `☰` 手柄调整。
+- 新增网站默认属于当前分类。
+- 编辑网站时仍然可以修改到其他分类。
+- 支持网站启用 / 停用、编辑、删除。
 
-### 方式 A：直接上传 ZIP / 文件夹
+### 保存逻辑
 
-在 EdgeOne Makers 创建项目时，选择上传本项目文件夹或 ZIP。
+拖拽、编辑、启用/停用后，右上角“保存到 KV”按钮会提示“有修改”。
 
-这个项目包含静态页面与 `edge-functions/`，不要只上传 `index.html`，否则后台 API 不会部署。
+只有点击“保存到 KV”后才正式写入 KV。
 
-### 方式 B：Git 仓库部署（更推荐）
+### 旧数据兼容
 
-1. 新建 GitHub 或 Gitee 仓库。
-2. 将本项目所有文件上传到仓库根目录。
-3. 在 EdgeOne Makers 中创建项目。
-4. 选择从 Git 仓库导入。
-5. 以后每次提交代码，Makers 可以重新部署。
-
-## 二、创建 KV
-
-进入 EdgeOne Makers / 存储 / KV：
-
-1. 开通 KV。
-2. 创建一个 Namespace，例如：
+V2 以及更早版本使用：
 
 ```text
-navigation
+sort: 10
+sort: 20
+sort: 30
 ```
 
-3. 将这个 Namespace 绑定到当前 Makers 项目。
-4. **变量名称必须填写：**
+V3 首次读取旧 KV 时，会先按照旧 `sort` 数值恢复当前顺序，再转换为数组顺序。
+
+因此不需要清空 `NAV_CONFIG`，现有分类、网站、图标和地址都会继续保留。
+
+保存一次 V3 配置后，KV 数据版本升级为：
+
+```json
+{
+  "version": 2
+}
+```
+
+之后显示顺序完全由 `categories` 和 `sites` 数组顺序决定。
+
+## 后台地址
+
+仍然由环境变量：
+
+```text
+ADMIN_PATH
+```
+
+控制。
+
+例如：
+
+```text
+ADMIN_PATH=manage2026
+```
+
+后台访问：
+
+```text
+https://你的域名/manage2026
+```
+
+分类的网站管理使用同一个后台地址，通过页面参数切换，例如：
+
+```text
+https://你的域名/manage2026?view=sites&category=ai
+```
+
+用户不需要手动拼地址，直接点击分类名称即可进入。
+
+## 环境变量
+
+保持不变：
+
+```text
+ADMIN_PATH=你的后台后缀
+ADMIN_USERNAME=后台账号
+ADMIN_PASSWORD=后台密码
+SESSION_SECRET=随机签名密钥
+```
+
+KV 项目绑定变量：
 
 ```text
 NAV_KV
 ```
 
-项目代码会通过 `NAV_KV` 访问这个 KV。
-
-KV 中使用的配置 Key 是：
+KV Key：
 
 ```text
 NAV_CONFIG
 ```
 
-首次访问前台 `/api/config` 时，如果 KV 里还没有这个 Key，系统会自动写入内置默认导航。
+## 部署
 
-## 三、配置后台环境变量
-
-进入 Makers 项目的“环境变量”，添加：
+项目根目录：
 
 ```text
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=请填写你自己的强密码
-SESSION_SECRET=请填写一段足够长的随机字符串
+index.html
+README.md
+edge-functions/
+  [path].js
+  api/
+    config.js
+    login.js
 ```
 
-建议：
-
-- `ADMIN_USERNAME`：后台账号。
-- `ADMIN_PASSWORD`：至少 12 位，不要使用简单密码。
-- `SESSION_SECRET`：建议 32 位以上随机字符。
-- 不要把真实密码或 SESSION_SECRET 提交到 Git 仓库。
-
-修改环境变量后，请重新部署项目。
-
-## 四、访问
-
-前台：
+EdgeOne Makers 构建设置：
 
 ```text
-https://你的域名/
+框架预设：Other
+根目录：./
+输出目录：留空
+构建命令：留空
+安装命令：留空
 ```
 
-后台：
+直接覆盖 GitHub 仓库中的旧文件并提交，等待 Makers 自动部署即可。
 
-```text
-https://你的域名/<ADMIN_PATH>
-```
-
-登录后台后即可修改网站和分类。
-
-## 五、如何控制“显示多少网站”
-
-后台 → 首页设置 → `首页最多显示网站数`
-
-例如：
-
-```text
-0  = 显示全部启用的网站
-8  = 首页最多显示 8 个
-12 = 首页最多显示 12 个
-20 = 首页最多显示 20 个
-```
-
-同时，每个网站都有“启用 / 停用”。
-
-因此可以有 30 个网站保存在 KV 中，但只启用其中 20 个，再设置首页最多显示 12 个。
-
-## 六、网站图标
-
-每个网站可以填写：
-
-```text
-https://example.com/icon.png
-```
-
-如果图标 URL 留空，系统会尝试：
-
-```text
-https://example.com/favicon.ico
-```
-
-如果自动图标加载失败，会显示网站名称前两个字符作为备用图标。
-
-## 七、KV 数据结构
-
-整个配置保存为一个 JSON，示意：
-
-```json
-{
-  "settings": {
-    "title": "龙鲟导航",
-    "subtitle": "搜索一下，或者直接打开常用网站",
-    "maxSites": 0
-  },
-  "categories": [],
-  "sites": []
-}
-```
-
-这种方式特别适合导航站，因为配置数据很小，而且“读取远多于修改”。
-
-## 八、注意：KV 是最终一致性
-
-EdgeOne Makers KV 是多边缘节点 KV。后台保存后，当前节点可以立即读取新数据，但其他边缘节点最长可能约 60 秒后才读到最新配置。
-
-因此后台点击保存后：
-- 你自己刷新通常很快能看到；
-- 其他地区用户可能在短时间内看到旧数据；
-- 最长约 60 秒后会同步。
-
-这属于 KV 的正常工作机制，不是程序故障。
-
-## 九、安全说明
-
-`admin.html` 本身是静态页面，任何知道地址的人都可能打开登录界面，但无法读取后台配置或修改 KV。
-
-真正的权限校验在 Edge Function 中：
-
-- `/api/login`
-- `/api/config?admin=1`
-- `POST /api/config`
-
-保存配置必须带有效的后台 Token。
-
-账号、密码和签名密钥都放在 Makers 环境变量中。
-
-
-## V2：后台访问后缀环境变量
-
-新版不再公开部署根目录的 `admin.html`。
-后台页面通过动态 Edge Function 提供，并根据环境变量 `ADMIN_PATH` 判断当前 URL 是否允许访问。
-
-需要的环境变量：
-
-```text
-ADMIN_PATH=dragonadmin
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=你的后台密码
-SESSION_SECRET=你的随机签名密钥
-```
-
-例如：
-
-```text
-ADMIN_PATH=navmanage2026
-```
-
-后台访问地址就是：
-
-```text
-https://你的域名/navmanage2026
-```
-
-`ADMIN_PATH` 支持英文字母、数字、`-`、`_`，长度 1～80 个字符。填写时可以写 `dragonadmin` 或 `/dragonadmin`，程序会自动去掉首尾 `/`。
-
-原来的：
-
-```text
-/admin.html
-```
-
-新版已经不存在，会返回 404。
-
-后台登录账号密码仍然读取：
-
-```text
-ADMIN_USERNAME
-ADMIN_PASSWORD
-```
-
-`SESSION_SECRET` 仍用于签名后台登录 Token。
-
-修改 `ADMIN_PATH` 后需要重新部署，使新的生产环境变量生效。KV 绑定变量 `NAV_KV` 和 KV 中已有的 `NAV_CONFIG` 数据都不需要修改，因此升级此版本不会主动清空现有导航数据。
+原来的 KV Namespace 和环境变量无需重新创建。
