@@ -7,7 +7,7 @@
 - 点击网站按钮在新标签页打开。
 - 网站图标支持后台填写自定义图标 URL。
 - 图标 URL 留空时，前台自动尝试读取该网站的 `/favicon.ico`。
-- 后台管理地址：`https://你的域名/admin.html`
+- 后台管理地址由环境变量 `ADMIN_PATH` 控制，例如 `ADMIN_PATH=dragonadmin` 时访问 `https://你的域名/dragonadmin`
 - 后台管理网站：
   - 新增
   - 编辑
@@ -36,7 +36,6 @@
 ```text
 edgeone-makers-nav-kv/
 ├─ index.html
-├─ admin.html
 ├─ README.md
 └─ edge-functions/
    └─ api/
@@ -120,7 +119,7 @@ https://你的域名/
 后台：
 
 ```text
-https://你的域名/admin.html
+https://你的域名/<ADMIN_PATH>
 ```
 
 登录后台后即可修改网站和分类。
@@ -200,3 +199,51 @@ EdgeOne Makers KV 是多边缘节点 KV。后台保存后，当前节点可以�
 保存配置必须带有效的后台 Token。
 
 账号、密码和签名密钥都放在 Makers 环境变量中。
+
+
+## V2：后台访问后缀环境变量
+
+新版不再公开部署根目录的 `admin.html`。
+后台页面通过动态 Edge Function 提供，并根据环境变量 `ADMIN_PATH` 判断当前 URL 是否允许访问。
+
+需要的环境变量：
+
+```text
+ADMIN_PATH=dragonadmin
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=你的后台密码
+SESSION_SECRET=你的随机签名密钥
+```
+
+例如：
+
+```text
+ADMIN_PATH=navmanage2026
+```
+
+后台访问地址就是：
+
+```text
+https://你的域名/navmanage2026
+```
+
+`ADMIN_PATH` 支持英文字母、数字、`-`、`_`，长度 1～80 个字符。填写时可以写 `dragonadmin` 或 `/dragonadmin`，程序会自动去掉首尾 `/`。
+
+原来的：
+
+```text
+/admin.html
+```
+
+新版已经不存在，会返回 404。
+
+后台登录账号密码仍然读取：
+
+```text
+ADMIN_USERNAME
+ADMIN_PASSWORD
+```
+
+`SESSION_SECRET` 仍用于签名后台登录 Token。
+
+修改 `ADMIN_PATH` 后需要重新部署，使新的生产环境变量生效。KV 绑定变量 `NAV_KV` 和 KV 中已有的 `NAV_CONFIG` 数据都不需要修改，因此升级此版本不会主动清空现有导航数据。
