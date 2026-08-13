@@ -169,14 +169,14 @@ function cleanConfig(input) {
   }).filter(s => s.url && s.categoryId);
 
   return {
-    version: 7,
+    version: 8,
     settings: {
       title: String(settings.title || "龙鲟导航").slice(0, 80),
       subtitle: String(settings.subtitle || "").slice(0, 200),
       maxSites: Math.max(0, Math.min(2000, Number(settings.maxSites || 0) | 0)),
       engineColorFollowTheme: false,
       engineSelectedColor: cleanHexColor(settings.engineSelectedColor, "#52525b"),
-      engineUnselectedColor: cleanHexColor(settings.engineUnselectedColor, "#ffffff"),
+      engineUnselectedColor: "#ffffff",
       engineHoverColor: cleanHexColor(settings.engineHoverColor, "#f1f2f4")
     },
     searchEngines: cleanSearchEngines(cfg.searchEngines),
