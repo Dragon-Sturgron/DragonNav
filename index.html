@@ -195,7 +195,7 @@ const saved=localStorage.getItem("nav-theme");document.documentElement.dataset.t
 
 function clock(){
  const n=new Date();
- $("clockTime").textContent=n.toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit",hour12:false});
+ $("clockTime").textContent=n.toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
  $("clockDate").textContent=n.toLocaleDateString("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
 }
 
