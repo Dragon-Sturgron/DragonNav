@@ -8,7 +8,7 @@ import { useWeather, weatherInfo } from './composables/useWeather'
 import { useIpProfile } from './composables/useIpProfile'
 
 const DEFAULT_CONFIG = {
-  version: 9,
+  version: 10,
   settings: {
     title: '龙鲟导航',
     subtitle: '搜索一下，或者直接打开常用网站',
@@ -33,8 +33,10 @@ const filterText = ref('')
 const now = ref(new Date())
 const forecastOpen = ref(false)
 const ipOpen = ref(false)
+const accessNotice = ref('')
 const theme = ref(localStorage.getItem('nav-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
 let clockTimer = 0
+let accessNoticeTimer = 0
 
 const latency = useLatency()
 const weather = useWeather()
@@ -88,6 +90,7 @@ const grouped = computed(() => {
 const allVisibleSites = computed(() => grouped.value.flatMap(cat => cat.sites))
 
 watch(allVisibleSites, list => latency.setSites(list), { immediate: true })
+watch(() => ipProfile.data.value?.ip, ip => latency.setClientIp(ip || ''), { immediate: true })
 
 watch(theme, value => {
   document.documentElement.dataset.theme = value
@@ -123,6 +126,83 @@ async function loadConfig() {
   }
 }
 
+function score(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function siteAccess(site) {
+  const policy = site?.accessPolicy || {}
+  if (policy.enabled !== true) return { allowed: true, pending: false, label: '' }
+
+  const profile = ipProfile.data.value
+  if (!profile) {
+    return {
+      allowed: false,
+      pending: true,
+      label: ipProfile.error.value ? 'IP 风险数据不可用' : '正在验证当前 IP'
+    }
+  }
+
+  const trust = score(profile?.risk?.trustScore ?? profile?.risk?.score)
+  const risk = score(profile?.risk?.riskScore)
+  const minTrust = Math.max(0, Math.min(100, Number(policy.minTrustScore ?? 0)))
+  const maxRisk = Math.max(0, Math.min(100, Number(policy.maxRiskScore ?? 100)))
+  const reasons = []
+
+  if (trust === null) {
+    if (policy.blockUnknown === true) reasons.push('信誉分未知')
+  } else if (trust < minTrust) {
+    reasons.push(`信誉 ${Math.round(trust)} < ${Math.round(minTrust)}`)
+  }
+
+  if (risk === null) {
+    if (policy.blockUnknown === true) reasons.push('风险值未知')
+  } else if (risk > maxRisk) {
+    reasons.push(`风险 ${Math.round(risk)} > ${Math.round(maxRisk)}`)
+  }
+
+  return reasons.length
+    ? { allowed: false, pending: false, label: reasons.join(' · ') }
+    : { allowed: true, pending: false, label: 'IP 风控通过' }
+}
+
+function showAccessNotice(message) {
+  accessNotice.value = message || '当前 IP 不满足这个网站的访问条件'
+  clearTimeout(accessNoticeTimer)
+  accessNoticeTimer = window.setTimeout(() => { accessNotice.value = '' }, 3800)
+}
+
+function findConfiguredSiteForUrl(url) {
+  let target
+  try { target = new URL(url) } catch { return null }
+  const normalizeHost = host => String(host || '').toLowerCase().replace(/^www\./, '')
+  return (config.sites || []).find(site => {
+    try {
+      const configured = new URL(site.url)
+      return normalizeHost(configured.hostname) === normalizeHost(target.hostname)
+    } catch { return false }
+  }) || null
+}
+
+function handleBlocked(site, message) {
+  showAccessNotice(`${site.name}：${message || '当前 IP 不满足访问条件'}`)
+}
+
+function handleNavigate({ url, direct }) {
+  if (direct) {
+    const site = findConfiguredSiteForUrl(url)
+    if (site) {
+      const access = siteAccess(site)
+      if (!access.allowed) {
+        showAccessNotice(`${site.name}：${access.label}`)
+        return
+      }
+    }
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
 }
@@ -150,14 +230,16 @@ onMounted(() => {
   document.addEventListener('keydown', handleShortcut)
   loadConfig()
   weather.load()
-  ipProfile.load()
+  ipProfile.start()
   latency.start()
 })
 
 onBeforeUnmount(() => {
   clearInterval(clockTimer)
+  clearTimeout(accessNoticeTimer)
   document.removeEventListener('keydown', handleShortcut)
   latency.stop()
+  ipProfile.stop()
 })
 </script>
 
@@ -167,7 +249,10 @@ onBeforeUnmount(() => {
       <button class="ip-card" type="button" @click="ipOpen = true">
         <div class="ip-card__flag">{{ ipProfile.data.value?.flag || '🌐' }}</div>
         <div class="ip-card__body">
-          <div class="ip-card__country">{{ currentIpCountry }}</div>
+          <div class="ip-card__country">
+            {{ currentIpCountry }}
+            <span v-if="ipProfile.refreshing.value" class="ip-card__pulse" title="正在自动更新"></span>
+          </div>
           <div class="ip-card__address">{{ currentIp }}</div>
         </div>
         <span class="ip-card__arrow">›</span>
@@ -203,7 +288,7 @@ onBeforeUnmount(() => {
       <h1>{{ title }}</h1>
       <p>{{ subtitle }}</p>
 
-      <SearchBar :engines="config.searchEngines || []" />
+      <SearchBar :engines="config.searchEngines || []" @navigate="handleNavigate" />
       <div v-if="configError" class="warning">{{ configError }}</div>
     </section>
 
@@ -228,7 +313,10 @@ onBeforeUnmount(() => {
               :key="site.id"
               :site="site"
               :latency="latency.states[site.id]"
+              :access="siteAccess(site)"
+              :client-ip="ipProfile.data.value?.ip || ''"
               @visibility="latency.markVisible"
+              @blocked="handleBlocked(site, $event)"
             />
           </div>
         </section>
@@ -241,13 +329,15 @@ onBeforeUnmount(() => {
       <span>Vue 3 · Vite · Tencent EdgeOne Makers</span>
     </footer>
 
+    <div v-if="accessNotice" class="access-toast" role="status">🔒 {{ accessNotice }}</div>
+
     <IpProfileModal
       v-if="ipOpen"
       :profile="ipProfile.data.value"
       :loading="ipProfile.loading.value"
+      :refreshing="ipProfile.refreshing.value"
       :error="ipProfile.error.value"
       @close="ipOpen = false"
-      @refresh="ipProfile.load(true)"
     />
 
     <div v-if="forecastOpen" class="modal-backdrop" @click.self="forecastOpen = false">

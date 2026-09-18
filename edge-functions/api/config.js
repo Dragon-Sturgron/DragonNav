@@ -41,7 +41,7 @@ function bearer(request) {
 
 const KV_KEY = "NAV_CONFIG";
 const DEFAULT_CONFIG = {
-  version: 9,
+  version: 10,
   settings: {
     title: "龙鲟导航",
     subtitle: "搜索一下，或者直接打开常用网站",
@@ -190,6 +190,9 @@ function cleanConfig(input) {
     if (icon) {
       try { const u = new URL(icon); if (!["http:", "https:"].includes(u.protocol)) icon = ""; } catch { icon = ""; }
     }
+    const accessPolicy = s?.accessPolicy && typeof s.accessPolicy === "object" ? s.accessPolicy : {};
+    const minTrustScore = Math.max(0, Math.min(100, Number(accessPolicy.minTrustScore ?? 0) || 0));
+    const maxRiskScore = Math.max(0, Math.min(100, Number(accessPolicy.maxRiskScore ?? 100)));
     return {
       id: normalizeId(s?.id, `site_${i}`),
       name: String(s?.name || "未命名网站").slice(0, 100),
@@ -197,12 +200,18 @@ function cleanConfig(input) {
       desc: String(s?.desc || "").slice(0, 200),
       icon,
       categoryId: validCatIds.has(String(s?.categoryId)) ? String(s.categoryId) : (cleanCats[0]?.id || ""),
-      enabled: s?.enabled !== false
+      enabled: s?.enabled !== false,
+      accessPolicy: {
+        enabled: accessPolicy.enabled === true,
+        minTrustScore,
+        maxRiskScore: Number.isFinite(maxRiskScore) ? maxRiskScore : 100,
+        blockUnknown: accessPolicy.blockUnknown === true
+      }
     };
   }).filter(s => s.url && s.categoryId);
 
   return {
-    version: 9,
+    version: 10,
     settings: {
       title: String(settings.title || "龙鲟导航").slice(0, 80),
       subtitle: String(settings.subtitle || "").slice(0, 200),

@@ -4,10 +4,11 @@ import { computed } from 'vue'
 const props = defineProps({
   profile: { type: Object, default: null },
   loading: { type: Boolean, default: false },
+  refreshing: { type: Boolean, default: false },
   error: { type: String, default: '' }
 })
 
-const emit = defineEmits(['close', 'refresh'])
+const emit = defineEmits(['close'])
 
 function countryName(location) {
   if (location?.countryCode) {
@@ -21,12 +22,24 @@ const locationText = computed(() => {
   return [countryName(p), p.region, p.city].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' · ') || '未知位置'
 })
 
-const score = computed(() => Number.isFinite(props.profile?.risk?.score) ? Math.round(props.profile.risk.score) : null)
-const scoreLabel = computed(() => {
-  if (score.value === null) return '暂无评分'
-  if (score.value >= 75) return '高信任'
-  if (score.value >= 45) return '中性'
-  return '低信任'
+const trustScore = computed(() => {
+  const value = props.profile?.risk?.trustScore ?? props.profile?.risk?.score
+  return Number.isFinite(value) ? Math.round(value) : null
+})
+const riskScore = computed(() => Number.isFinite(props.profile?.risk?.riskScore) ? Math.round(props.profile.risk.riskScore) : null)
+
+const trustLabel = computed(() => {
+  if (trustScore.value === null) return '暂无评分'
+  if (trustScore.value >= 75) return '高信誉'
+  if (trustScore.value >= 45) return '中等信誉'
+  return '低信誉'
+})
+
+const riskLabel = computed(() => {
+  if (riskScore.value === null) return '暂无评分'
+  if (riskScore.value <= 25) return '低风险'
+  if (riskScore.value <= 55) return '中等风险'
+  return '高风险'
 })
 
 const baseRows = computed(() => {
@@ -42,7 +55,8 @@ const baseRows = computed(() => {
     ['经度', l.longitude],
     ['纬度', l.latitude],
     ['IP 类型', p.risk?.ipType],
-    ['风险值', score.value === null ? null : `${score.value} / 100 · ${scoreLabel.value}`],
+    ['IP 信誉分', trustScore.value === null ? null : `${trustScore.value} / 100 · ${trustLabel.value}`],
+    ['风险值', riskScore.value === null ? null : `${riskScore.value} / 100 · ${riskLabel.value}`],
     ['IP 地址（数字）', p.numeric],
     ['原生 / 广播', p.unsupported?.nativeIp],
     ['共享人数', p.unsupported?.sharedUsers]
@@ -93,7 +107,7 @@ const riskRows = computed(() => {
     ['爬虫标记', flagText(f.crawler)],
     ['滥用标记', flagText(f.abuser)],
     ['Bogon', flagText(f.bogon)],
-    ['滥用评分', r.abuserScore],
+    ['上游滥用评分', r.abuserScore],
     ['访问评估', r.assessment]
   ]
 })
@@ -139,7 +153,9 @@ async function copyIp() {
           </div>
         </div>
         <div class="ip-modal-actions">
-          <button class="soft-btn" type="button" :disabled="loading" @click="emit('refresh')">{{ loading ? '检测中…' : '重新检测' }}</button>
+          <span class="auto-detect-badge" :data-active="refreshing ? 'true' : 'false'">
+            <i></i>{{ refreshing ? '正在自动检测' : '自动检测 · 每 30 秒' }}
+          </span>
           <button class="round-btn" type="button" @click="emit('close')">×</button>
         </div>
       </header>
@@ -147,21 +163,37 @@ async function copyIp() {
       <div v-if="error && !profile" class="ip-error">{{ error }}</div>
 
       <template v-if="profile">
-        <section class="ip-score-card">
-          <div class="ip-score-main">
-            <div class="ip-score-caption">IP 信任分</div>
-            <strong>{{ score === null ? '—' : score }}</strong>
-            <span>{{ scoreLabel }}</span>
-          </div>
-          <div class="ip-score-body">
-            <div class="ip-score-track"><span :style="{ width: `${score ?? 0}%` }"></span><i :style="{ left: `${score ?? 0}%` }"></i></div>
-            <div class="ip-score-scale"><span>0 低信任</span><span>25</span><span>50</span><span>75</span><span>100 高信任</span></div>
-            <div class="ip-summary-chips">
-              <span>{{ profile.risk?.ipType || '未分类' }}</span>
-              <span v-if="profile.identity?.cidr">{{ profile.identity.cidr }}</span>
-              <span v-if="profile.identity?.registry">{{ profile.identity.registry }}</span>
-              <span>数据源 {{ Object.values(profile.sources || {}).filter(Boolean).length }} 项</span>
+        <section class="ip-score-card ip-score-card--dual">
+          <div class="ip-score-panel">
+            <div class="ip-score-main">
+              <div class="ip-score-caption">IP 信誉分</div>
+              <strong>{{ trustScore === null ? '—' : trustScore }}</strong>
+              <span>{{ trustLabel }}</span>
             </div>
+            <div class="ip-score-body">
+              <div class="ip-score-track ip-score-track--trust"><i :style="{ left: `${trustScore ?? 0}%` }"></i></div>
+              <div class="ip-score-scale"><span>0 低信誉</span><span>25</span><span>50</span><span>75</span><span>100 高信誉</span></div>
+            </div>
+          </div>
+
+          <div class="ip-score-panel">
+            <div class="ip-score-main ip-score-main--risk">
+              <div class="ip-score-caption">风险值</div>
+              <strong>{{ riskScore === null ? '—' : riskScore }}</strong>
+              <span>{{ riskLabel }}</span>
+            </div>
+            <div class="ip-score-body">
+              <div class="ip-score-track ip-score-track--risk"><i :style="{ left: `${riskScore ?? 0}%` }"></i></div>
+              <div class="ip-score-scale"><span>0 低风险</span><span>25</span><span>50</span><span>75</span><span>100 高风险</span></div>
+            </div>
+          </div>
+
+          <div class="ip-summary-chips ip-summary-chips--full">
+            <span>{{ profile.risk?.ipType || '未分类' }}</span>
+            <span v-if="profile.identity?.cidr">{{ profile.identity.cidr }}</span>
+            <span v-if="profile.identity?.registry">{{ profile.identity.registry }}</span>
+            <span>数据源 {{ Object.values(profile.sources || {}).filter(Boolean).length }} 项</span>
+            <span>信誉越高越好 · 风险越低越好</span>
           </div>
         </section>
 
@@ -202,25 +234,11 @@ async function copyIp() {
               </div>
             </div>
           </section>
-
-          <section class="ip-detail-card ip-detail-card--wide">
-            <div class="section-inline-head">
-              <h4>应用场景参考</h4>
-              <span>仅依据 IP 网络风险信号，不代表平台官方解锁或账号风控结论</span>
-            </div>
-            <div class="scenario-list">
-              <div v-for="item in profile.scenarios || []" :key="item.name" class="scenario-row">
-                <span>{{ item.name }}</span>
-                <div class="scenario-meter"><i v-for="n in 6" :key="n" :class="['scenario-dot', item.level]"></i></div>
-                <strong :data-level="item.level">{{ item.text }}</strong>
-              </div>
-            </div>
-          </section>
         </div>
 
         <footer class="ip-modal-foot">
           <span>数据综合：EdgeOne 客户端网络信息、Net.Coffee、ipapi.is、RDAP、PTR</span>
-          <span>检测时间：{{ new Date(profile.checkedAt).toLocaleString('zh-CN') }}</span>
+          <span>自动刷新：30 秒 · 最近检测：{{ new Date(profile.checkedAt).toLocaleString('zh-CN') }}</span>
         </footer>
       </template>
     </section>

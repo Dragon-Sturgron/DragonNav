@@ -4,6 +4,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 const props = defineProps({
   engines: { type: Array, default: () => [] }
 })
+const emit = defineEmits(['navigate'])
 
 const query = ref('')
 const open = ref(false)
@@ -41,11 +42,11 @@ function buildSearchUrl(item, text) {
 function submit() {
   const text = query.value.trim()
   if (!text) return
-  const looksLikeUrl = /^(https?:\/\/)/i.test(text) || /^([a-z0-9-]+\.)+[a-z]{2,}(\/.*)?$/i.test(text) || /^localhost(:\d+)?/i.test(text)
-  const url = looksLikeUrl
+  const direct = /^(https?:\/\/)/i.test(text) || /^([a-z0-9-]+\.)+[a-z]{2,}(\/.*)?$/i.test(text) || /^localhost(:\d+)?/i.test(text)
+  const url = direct
     ? (/^https?:\/\//i.test(text) ? text : 'https://' + text)
     : buildSearchUrl(selected.value, text)
-  if (url) window.open(url, '_blank', 'noopener,noreferrer')
+  if (url) emit('navigate', { url, direct })
 }
 
 function clickOutside(event) {

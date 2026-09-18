@@ -1,90 +1,160 @@
-# DragonNav V5 · Vue 3 + 当前线路延迟 + 当前 IP 画像
+# DragonNav V6 · Vue 3 + 当前 IP 风控访问控制
 
-DragonNav 是一个部署在 **Tencent EdgeOne Makers** 上的导航站项目。
+DragonNav V6 继续部署在 Tencent EdgeOne Makers，使用 Vue 3 + Vite + Edge Functions + NAV_KV。
 
-V5 在 V4 的 Vue 3 + Vite 基础上继续优化首页，并新增当前访问 IP 卡片和 IP 详情面板。
+本版在 V5 基础上主要加入：
 
-## V5 变化
-
-- 左上角原“龙鲟导航”品牌卡改为**当前访问 IP 卡片**。
-- IP 卡片默认只显示：**国家/地区 + 当前公网 IP**。
-- 点击 IP 卡片弹出 IP 详情面板。
-- 移除搜索框下方“5 秒刷新 / 并发 / 中位延迟”说明胶囊。
-- 移除“DRAGONNAV / 网站导航 / 延迟说明”区块，仅保留网站筛选框和分类卡片。
-- 保留网站卡片每 5 秒刷新当前浏览器线路的访问延迟。
-- 保留天气、未来 7 天天气、深浅色、时钟、搜索、KV 后台等原有功能。
-
-## IP 详情内容
-
-弹窗会对重复信息去重后展示：
-
-- IP 地址
-- 国家 / 地区 / 城市
-- ASN
-- ASN 所有者
-- ISP / 企业 / 组织
-- 经度 / 纬度
-- IPv4 / IPv6
-- IP 地址数字值（IPv4）
-- 数据中心 / 住宅 / 移动网络
-- VPN / Proxy / Tor
-- 爬虫 / 滥用 / Bogon 标记
-- IP 信任分
-- CIDR
-- IP 范围
-- 地址数量
-- RIR
-- ASN / 公司类型
-- ASN 注册时间 / 资料更新时间
-- PTR / 主机名
-- RDAP 网络名称
-- 时区
-- 应用场景网络风险参考
-
-“原生 / 广播 IP”“共享人数”“具体平台解锁”如果没有可靠公开数据，会明确显示未做结论，不会伪造结果。
-
-## IP 数据来源
-
-`/api/ip-profile` 会综合：
-
-- EdgeOne 当前客户端 IP / GEO
-- Net.Coffee IP health
-- ipapi.is
-- RDAP
-- DNS PTR
-
-基础功能**无需新增 API Key**。
-
-如果希望 ipapi.is 返回更完整的安全 / ASN / 公司字段，可选在 EdgeOne 环境变量中增加：
-
-```text
-IPAPI_KEY=你的 ipapi.is API Key
-```
-
-不配置也能使用，系统会自动使用其他来源补齐可获得的信息。
-
-> IP 地址会被用于上述网络信息查询。如果公开提供给其他用户访问，请根据你的实际使用地区补充合适的隐私说明。
+- 打开首页后自动检测当前公网 IP；
+- 每 30 秒自动更新一次 IP 画像、IP 信誉分和风险值；
+- 删除“手动重新检测”按钮；
+- 删除“应用场景参考”板块；
+- 每个导航网站可单独设置 IP 风控访问规则；
+- 网站卡片延迟改为由访问者当前浏览器直接请求目标域名的轻量资源；
+- 当前公网 IP 改变后自动清空旧延迟历史并重新测量；
+- 仍兼容现有 NAV_KV 数据，不需要清空原导航配置。
 
 ---
 
-# EdgeOne 环境变量
+## 1. IP 自动检测
 
-保留原项目配置：
-
-```text
-ADMIN_PATH=你的后台路径
-ADMIN_USERNAME=后台账号
-ADMIN_PASSWORD=后台密码
-SESSION_SECRET=随机长字符串
-```
-
-可选：
+首页加载后会立即调用：
 
 ```text
-IPAPI_KEY=ipapi.is API Key
+/api/ip-profile
 ```
 
-KV Namespace 绑定变量名：
+之后每：
+
+```text
+30 秒
+```
+
+自动重新检测一次。
+
+浏览器切换到后台时不会重复发起无意义检测；重新回到页面且数据已经超过 30 秒，会立即补一次检测。
+
+IP 弹窗中会显示：
+
+```text
+IP 地址
+IP 国家 / 地区 / 城市
+ASN
+ASN 所有者
+ISP
+企业 / 组织
+经纬度
+IP 类型
+IP 信誉分
+风险值
+CIDR
+IP 范围
+PTR
+RIR
+VPN / Proxy / Tor / 爬虫 / 滥用 / Bogon 等风险信号
+```
+
+其中：
+
+```text
+IP 信誉分：0 - 100，越高越好
+风险值：0 - 100，越低越好
+```
+
+风险值会综合已取得的上游风险评分、信誉分反向值以及 VPN / Proxy / Tor / Abuser / Datacenter 等风险标记。
+
+> 这些数据用于本导航站的访问策略参考，不代表目标网站官方的账号风控评分。
+
+---
+
+## 2. 网站 IP 风控访问控制
+
+后台编辑网站时新增：
+
+```text
+IP 风险访问控制
+最低 IP 信誉分
+最高风险值
+评分未知时允许 / 拒绝
+```
+
+例如你希望 ChatGPT 只有在：
+
+```text
+IP 信誉分 >= 70
+风险值 <= 45
+```
+
+时才能通过 DragonNav 打开，就在后台把该网站设置为：
+
+```text
+访问控制：启用
+最低 IP 信誉分：70
+最高风险值：45
+评分未知时：拒绝访问
+```
+
+如果当前 IP 为：
+
+```text
+信誉分 61
+风险值 52
+```
+
+网站卡片会被锁定，例如显示：
+
+```text
+🔒 信誉 61 < 70 · 风险 52 > 45
+```
+
+点击不会打开目标网站。
+
+如果当前 IP 满足要求，卡片正常打开。
+
+### 重要说明
+
+这个功能控制的是：
+
+```text
+用户通过 DragonNav 打开网站
+```
+
+它不能阻止用户绕过 DragonNav，直接在浏览器地址栏输入外部网站地址。
+
+如果以后需要真正的服务端访问授权，需要目标业务本身也接入鉴权或代理网关。
+
+---
+
+## 3. 网站延迟检测
+
+延迟仍然默认：
+
+```text
+每 5 秒刷新
+最多 4 个并发
+单次超时 3.2 秒
+最近 5 次成功数据取中位数
+```
+
+V6 不再直接请求目标网站完整首页，而是从访问者浏览器直接请求：
+
+```text
+https://目标网站/favicon.ico?随机参数
+```
+
+这样可以：
+
+- 避免整页 HTML 下载时间干扰；
+- 避免浏览器缓存影响；
+- 让请求真正从当前浏览器、当前公网 IP、当前 VPN / 代理线路发出；
+- 当前 IP 改变后清空上一条线路的历史数据。
+
+> 浏览器网页无法直接发送 ICMP Ping，因此卡片显示的仍是 HTTP/HTTPS 访问响应耗时，不是系统命令 `ping` 的 ICMP 延迟。
+
+---
+
+## 4. EdgeOne KV
+
+KV Namespace 绑定变量：
 
 ```text
 NAV_KV
@@ -96,28 +166,43 @@ KV Key：
 NAV_CONFIG
 ```
 
-现有 KV 不需要删除。
+升级 V6 时不要删除现有 KV。
+
+旧网站没有风控配置时，会自动视为：
+
+```text
+访问控制：关闭
+```
+
+不会因为升级而突然锁定原有网站。
 
 ---
 
-# EdgeOne Makers 部署
+## 5. EdgeOne 环境变量
 
-仓库根目录：
+继续保留：
 
 ```text
-index.html
-package.json
-vite.config.js
-edgeone.json
-README.md
-src/
-edge-functions/
+ADMIN_PATH=你的后台路径
+ADMIN_USERNAME=后台账号
+ADMIN_PASSWORD=后台密码
+SESSION_SECRET=随机长字符串
 ```
 
-构建设置：
+可选：
 
 ```text
-框架预设：Vite（或 Vue/Vite）
+IPAPI_KEY=你的 ipapi.is API Key
+```
+
+不配置 `IPAPI_KEY` 也能运行；配置后可在上游允许的情况下取得更多 IP 风险字段。
+
+---
+
+## 6. EdgeOne Makers 部署配置
+
+```text
+框架预设：Vite
 根目录：./
 安装命令：pnpm install
 构建命令：pnpm build
@@ -125,96 +210,81 @@ edge-functions/
 生产分支：main
 ```
 
-本仓库已有 `edgeone.json`：
-
-```json
-{
-  "buildCommand": "pnpm build",
-  "installCommand": "pnpm install",
-  "outputDirectory": "dist"
-}
-```
-
-当前仓库没有 `pnpm-lock.yaml`，所以使用：
-
-```bash
-pnpm install
-```
-
-不要改成：
-
-```bash
-pnpm install --frozen-lockfile
-```
-
-除非以后已经把 `pnpm-lock.yaml` 一起提交到仓库。
-
-## 部署后检查
-
-依次访问：
+仓库根目录应该直接看到：
 
 ```text
-https://你的域名/
-https://你的域名/api/config
-https://你的域名/api/ip-profile
-https://你的域名/{ADMIN_PATH}
+index.html
+package.json
+vite.config.js
+edgeone.json
+src/
+edge-functions/
+README.md
 ```
 
-其中 `/api/ip-profile` 正常时应返回当前访问者的 IP 画像 JSON。
+不要多套一层目录。
 
 ---
 
-# 网站延迟检测
+## 7. 覆盖旧仓库
 
-核心文件：
+如果你采用“删除 GitHub 旧代码后完整覆盖”的方式：
 
-```text
-src/composables/useLatency.js
-```
-
-默认：
-
-```js
-REFRESH_MS = 5000
-TIMEOUT_MS = 3500
-CONCURRENCY = 4
-HISTORY_SIZE = 3
-```
-
-延迟由访问者浏览器发起，因此反映当前公网 IP / VPN / 代理线路的 HTTP/HTTPS 访问响应耗时，不是 ICMP Ping。
+1. 不要删除 EdgeOne 的 `NAV_KV`；
+2. 不要删除 `NAV_CONFIG`；
+3. 不要删除原有后台环境变量；
+4. 解压本项目；
+5. 将解压后的**内容**上传到 GitHub 仓库根目录；
+6. 提交到 EdgeOne 绑定的 `main` 分支；
+7. 等待 EdgeOne 自动部署。
 
 ---
 
-# 后台
+## 8. 后台地址
 
-后台地址：
+后台仍然是：
 
 ```text
 https://你的域名/{ADMIN_PATH}
 ```
 
-仍可管理：
+例如：
 
-- 首页标题 / 副标题 / 最大显示数量
-- 分类
-- 网站
-- 搜索引擎
-- 拖拽排序
-- 启用 / 停用
-- 搜索按钮颜色
+```text
+ADMIN_PATH=manage2026
+```
 
-后台仍写入 `NAV_KV` 中的 `NAV_CONFIG`，与旧数据兼容。
+则访问：
+
+```text
+https://你的域名/manage2026
+```
 
 ---
 
-## 当前版本
+## 9. 建议的风控阈值示例
+
+这些只是配置示例，不代表任何第三方平台的官方要求：
 
 ```text
-DragonNav V5
+宽松：信誉 >= 45，风险 <= 75
+普通：信誉 >= 60，风险 <= 60
+严格：信誉 >= 75，风险 <= 40
+```
+
+具体阈值由你在每个网站的后台配置中自行决定。
+
+---
+
+## 10. 当前版本
+
+```text
+DragonNav V6
 Vue 3
 Vite
 Tencent EdgeOne Makers
-EdgeOne KV
-当前浏览器线路延迟检测
-当前访问 IP 画像
+NAV_KV
+IP 自动检测：30 秒
+网站延迟：当前浏览器 / 当前 IP 直连测量
+网站访问：支持按 IP 信誉分 + 风险值限制
 ```

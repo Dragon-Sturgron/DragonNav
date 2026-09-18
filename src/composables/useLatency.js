@@ -1,9 +1,9 @@
 import { computed, reactive } from 'vue'
 
 const REFRESH_MS = 5000
-const TIMEOUT_MS = 3500
+const TIMEOUT_MS = 3200
 const CONCURRENCY = 4
-const HISTORY_SIZE = 3
+const HISTORY_SIZE = 5
 
 function median(values) {
   if (!values.length) return null
@@ -19,6 +19,12 @@ function classify(ms) {
   return 'slow'
 }
 
+function makeProbeUrl(siteUrl) {
+  const target = new URL('/favicon.ico', siteUrl)
+  target.searchParams.set('__dragonnav_probe', `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
+  return target.href
+}
+
 export function useLatency() {
   const states = reactive({})
   const sites = new Map()
@@ -27,6 +33,7 @@ export function useLatency() {
   let scheduled = 0
   let running = false
   let disposed = false
+  let clientIp = ''
 
   function ensure(id) {
     if (!states[id]) {
@@ -36,10 +43,33 @@ export function useLatency() {
         quality: 'unknown',
         history: [],
         updatedAt: 0,
-        error: ''
+        error: '',
+        testedIp: ''
       }
     }
     return states[id]
+  }
+
+  function reset() {
+    for (const state of Object.values(states)) {
+      state.status = 'idle'
+      state.value = null
+      state.quality = 'unknown'
+      state.history = []
+      state.updatedAt = 0
+      state.error = ''
+      state.testedIp = ''
+    }
+    schedule(80)
+  }
+
+  function setClientIp(nextIp) {
+    const next = String(nextIp || '')
+    if (next === clientIp) return
+    const hadIp = Boolean(clientIp)
+    clientIp = next
+    // 出口 IP 发生变化时清空旧线路的历史值，避免把两条线路的样本混在一起。
+    if (hadIp || next) reset()
   }
 
   function setSites(list) {
@@ -72,12 +102,15 @@ export function useLatency() {
     scheduled = window.setTimeout(() => runRound(), delay)
   }
 
-  async function fetchProbe(url) {
+  async function directFetchProbe(siteUrl) {
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort('timeout'), TIMEOUT_MS)
+    const timeoutError = new DOMException('Timeout', 'AbortError')
+    const timeout = window.setTimeout(() => controller.abort(timeoutError), TIMEOUT_MS)
     const started = performance.now()
     try {
-      const response = await fetch(url, {
+      // 请求直接由当前浏览器发出，因此走的就是用户当前公网 IP / VPN / 代理线路。
+      // 使用目标域名的 favicon，避免下载整页 HTML 对结果造成过大干扰。
+      await fetch(makeProbeUrl(siteUrl), {
         method: 'GET',
         mode: 'no-cors',
         cache: 'no-store',
@@ -86,46 +119,46 @@ export function useLatency() {
         referrerPolicy: 'no-referrer',
         signal: controller.signal
       })
-      const ms = Math.max(1, Math.round(performance.now() - started))
-      try { response?.body?.cancel?.() } catch {}
-      controller.abort()
-      return ms
+      return Math.max(1, Math.round(performance.now() - started))
     } finally {
       clearTimeout(timeout)
     }
   }
 
-  function imageProbe(url) {
+  function imageProbe(siteUrl) {
     return new Promise((resolve, reject) => {
       let probeUrl
-      try {
-        const target = new URL('/favicon.ico', url)
-        target.searchParams.set('__dragonnav_latency', String(Date.now()))
-        probeUrl = target.href
-      } catch {
+      try { probeUrl = makeProbeUrl(siteUrl) } catch {
         reject(new Error('地址无效'))
         return
       }
 
       const image = new Image()
       const started = performance.now()
+      let settled = false
       const timeout = window.setTimeout(() => {
+        if (settled) return
+        settled = true
         cleanup()
         reject(new DOMException('Timeout', 'AbortError'))
       }, TIMEOUT_MS)
+
       const cleanup = () => {
         clearTimeout(timeout)
         image.onload = null
         image.onerror = null
-        image.src = ''
+        try { image.src = '' } catch {}
       }
+
       const done = () => {
+        if (settled) return
+        settled = true
         const ms = Math.max(1, Math.round(performance.now() - started))
         cleanup()
+        // 即使返回 404 或非图片内容，onerror 也说明目标域名已经完成一次响应。
         resolve(ms)
       }
-      // HTTP 404、非图片内容等也会触发 onerror，但说明目标站已经返回响应，
-      // 因此仍可以把耗时作为访问延迟参考。
+
       image.onload = done
       image.onerror = done
       image.referrerPolicy = 'no-referrer'
@@ -141,11 +174,9 @@ export function useLatency() {
     try {
       let ms
       try {
-        ms = await fetchProbe(site.url)
+        ms = await directFetchProbe(site.url)
       } catch (error) {
         if (error?.name === 'AbortError') throw error
-        // 少数网站会阻止跨域 fetch。此时退回到 favicon 图片探测，
-        // 仍由当前浏览器/当前公网 IP 直接访问目标站。
         ms = await imageProbe(site.url)
       }
 
@@ -156,11 +187,13 @@ export function useLatency() {
       state.quality = classify(value)
       state.status = 'ok'
       state.updatedAt = Date.now()
+      state.testedIp = clientIp
     } catch (error) {
       const timedOut = error?.name === 'AbortError'
       state.status = timedOut ? 'timeout' : 'error'
       state.error = timedOut ? '请求超时' : (error?.message || '无法检测')
       state.updatedAt = Date.now()
+      state.testedIp = clientIp
     }
   }
 
@@ -178,17 +211,11 @@ export function useLatency() {
 
   async function runRound() {
     if (disposed || running || document.hidden) return
-    const targets = [...visibleIds]
-      .map(id => sites.get(id))
-      .filter(Boolean)
+    const targets = [...visibleIds].map(id => sites.get(id)).filter(Boolean)
     if (!targets.length) return
 
     running = true
-    try {
-      await runPool(targets)
-    } finally {
-      running = false
-    }
+    try { await runPool(targets) } finally { running = false }
   }
 
   function start() {
@@ -225,9 +252,11 @@ export function useLatency() {
     states,
     summary,
     setSites,
+    setClientIp,
     markVisible,
     start,
     stop,
+    reset,
     refresh: runRound,
     constants: { refreshMs: REFRESH_MS, timeoutMs: TIMEOUT_MS, concurrency: CONCURRENCY }
   }

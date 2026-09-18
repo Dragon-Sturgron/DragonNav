@@ -22,6 +22,17 @@ function bool(value) {
   return typeof value === 'boolean' ? value : null
 }
 
+function scoreValue(value) {
+  if (value === null || value === undefined || value === '') return null
+  const match = String(value).match(/-?\d+(?:\.\d+)?/)
+  if (!match) return null
+  let n = Number(match[0])
+  if (!Number.isFinite(n) || n < 0) return null
+  if (n <= 1) n *= 100
+  if (n > 100) return null
+  return Math.round(n)
+}
+
 async function fetchJson(url, timeoutMs = 3800) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -162,6 +173,13 @@ function healthStatus(score) {
   return 'poor'
 }
 
+function riskStatus(score) {
+  if (!Number.isFinite(score)) return 'unknown'
+  if (score <= 25) return 'low'
+  if (score <= 55) return 'moderate'
+  return 'high'
+}
+
 function ipType(flags) {
   if (flags.mobile === true) return '移动网络'
   if (flags.residential === true) return '住宅 IP'
@@ -170,31 +188,30 @@ function ipType(flags) {
   return '未明确分类'
 }
 
-function scenarioReference(score, flags) {
-  const base = Number.isFinite(score) ? score : 60
-  const severe = flags.abuser === true || flags.tor === true || base < 45
-  const tunnel = flags.vpn === true || flags.proxy === true
-  const dc = flags.datacenter === true
+function deriveRiskScore(trustScore, flags, health, ipapi) {
+  const candidates = [
+    scoreValue(health?.risk_score),
+    scoreValue(health?.risk),
+    scoreValue(health?.abuse_score),
+    scoreValue(health?.fraud_score),
+    scoreValue(ipapi?.risk_score),
+    scoreValue(ipapi?.abuse_score),
+    scoreValue(ipapi?.asn?.abuser_score),
+    scoreValue(ipapi?.company?.abuser_score)
+  ].filter(Number.isFinite)
 
-  function status(kind) {
-    if (severe) return { level: 'warn', text: '建议实测' }
-    if (kind === 'sensitive' && (tunnel || dc || base < 75)) return { level: 'watch', text: '需实测' }
-    if (kind === 'stream' && tunnel) return { level: 'watch', text: '需实测' }
-    if (base >= 75) return { level: 'good', text: '低风险信号' }
-    return { level: 'watch', text: '需实测' }
-  }
+  if (Number.isFinite(trustScore)) candidates.push(Math.max(0, Math.min(100, 100 - trustScore)))
 
-  return [
-    ['AI 应用', 'sensitive'],
-    ['跨境电商', 'sensitive'],
-    ['社交与短视频', 'sensitive'],
-    ['流媒体影音', 'stream'],
-    ['开发与软件源', 'normal'],
-    ['云服务与托管', 'normal'],
-    ['搜索与资讯', 'normal'],
-    ['办公协作', 'normal'],
-    ['邮箱与通信', 'sensitive']
-  ].map(([name, kind]) => ({ name, ...status(kind) }))
+  if (flags.datacenter === true) candidates.push(45)
+  if (flags.crawler === true) candidates.push(55)
+  if (flags.vpn === true) candidates.push(70)
+  if (flags.proxy === true) candidates.push(80)
+  if (flags.abuser === true) candidates.push(90)
+  if (flags.tor === true) candidates.push(95)
+  if (flags.bogon === true) candidates.push(100)
+
+  if (!candidates.length) return null
+  return Math.max(0, Math.min(100, Math.round(Math.max(...candidates))))
 }
 
 export default async function onRequest(context) {
@@ -231,7 +248,8 @@ export default async function onRequest(context) {
     bogon: bool(ipapi?.is_bogon)
   }
 
-  const score = number(health?.trust_score)
+  const trustScore = scoreValue(health?.trust_score)
+  const riskScore = deriveRiskScore(trustScore, flags, health, ipapi)
   const asn = number(geo?.asn) ?? number(health?.asn) ?? number(ipapi?.asn?.asn) ?? ipapiFlatAsn.asn
   const asnOwner = text(ipapi?.asn?.org) || ipapiFlatAsn.owner || text(health?.isp)
   const company = text(ipapi?.company?.name) || (typeof ipapi?.company === 'string' ? text(ipapi.company) : null) || rdapEntityNames(rdap)[0] || asnOwner
@@ -252,8 +270,17 @@ export default async function onRequest(context) {
   const companyType = text(ipapi?.company?.type) || text(ipapi?.asn?.type)
   const ipVersion = ip.includes(':') ? 'IPv6' : 'IPv4'
   const numeric = ipVersion === 'IPv4' ? ipv4ToBigInt(ip)?.toString() || null : null
+  const abuserScore = scoreValue(ipapi?.asn?.abuser_score ?? ipapi?.company?.abuser_score ?? health?.abuse_score)
 
-  const result = {
+  const assessment = riskScore === null
+    ? '风险值数据不足'
+    : riskScore >= 70
+      ? '检测到较强风险信号'
+      : riskScore >= 40
+        ? '存在一定风险信号'
+        : '当前未发现明显风险信号'
+
+  return json({
     ok: true,
     checkedAt: new Date().toISOString(),
     ip,
@@ -279,24 +306,20 @@ export default async function onRequest(context) {
       rdapHandle: text(rdap?.handle)
     },
     risk: {
-      score,
-      status: healthStatus(score),
+      // score 保留用于兼容 V5，实际语义为信誉分。
+      score: trustScore,
+      trustScore,
+      trustStatus: healthStatus(trustScore),
+      riskScore,
+      riskStatus: riskStatus(riskScore),
       ipType: ipType(flags),
       flags,
-      abuserScore: text(ipapi?.asn?.abuser_score) || text(ipapi?.company?.abuser_score),
-      assessment: flags.abuser === true || flags.tor === true
-        ? '检测到较强风险信号'
-        : flags.vpn === true || flags.proxy === true
-          ? '检测到代理或 VPN 信号'
-          : score !== null && score >= 75
-            ? '当前未发现明显风险信号'
-            : '建议结合实际平台访问结果判断'
+      abuserScore,
+      assessment
     },
-    scenarios: scenarioReference(score, flags),
     unsupported: {
       nativeIp: '暂无可靠公开数据，未做“原生/广播 IP”结论',
-      sharedUsers: '暂无可信公开数据，未估算共享人数',
-      platformUnlock: '未把网络风险信号等同于具体平台官方解锁结果'
+      sharedUsers: '暂无可信公开数据，未估算共享人数'
     },
     sources: {
       edgeOne: true,
@@ -306,7 +329,5 @@ export default async function onRequest(context) {
       rdap: rdapResult.status === 'fulfilled',
       ptr: ptrResult.status === 'fulfilled' && Boolean(ptr)
     }
-  }
-
-  return json(result)
+  })
 }
