@@ -2,8 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import SearchBar from './components/SearchBar.vue'
 import SiteCard from './components/SiteCard.vue'
+import IpProfileModal from './components/IpProfileModal.vue'
 import { useLatency } from './composables/useLatency'
 import { useWeather, weatherInfo } from './composables/useWeather'
+import { useIpProfile } from './composables/useIpProfile'
 
 const DEFAULT_CONFIG = {
   version: 9,
@@ -30,15 +32,25 @@ const configLoading = ref(true)
 const filterText = ref('')
 const now = ref(new Date())
 const forecastOpen = ref(false)
+const ipOpen = ref(false)
 const theme = ref(localStorage.getItem('nav-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
 let clockTimer = 0
 
 const latency = useLatency()
 const weather = useWeather()
+const ipProfile = useIpProfile()
 
 const title = computed(() => config.settings?.title || '龙鲟导航')
 const subtitle = computed(() => config.settings?.subtitle || '搜索一下，或者直接打开常用网站')
 const currentWeather = computed(() => weather.data.value ? weatherInfo(weather.data.value.code) : null)
+const currentIpCountry = computed(() => {
+  const location = ipProfile.data.value?.location
+  if (location?.countryCode) {
+    try { return new Intl.DisplayNames(['zh-CN'], { type: 'region' }).of(location.countryCode) || location.country } catch {}
+  }
+  return location?.country || (ipProfile.loading.value ? '正在识别网络' : '当前网络')
+})
+const currentIp = computed(() => ipProfile.data.value?.ip || (ipProfile.error.value ? '获取失败' : '正在获取 IP…'))
 
 const timeText = computed(() => now.value.toLocaleTimeString('zh-CN', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
@@ -75,9 +87,7 @@ const grouped = computed(() => {
 
 const allVisibleSites = computed(() => grouped.value.flatMap(cat => cat.sites))
 
-watch(allVisibleSites, list => {
-  latency.setSites(list)
-}, { immediate: true })
+watch(allVisibleSites, list => latency.setSites(list), { immediate: true })
 
 watch(theme, value => {
   document.documentElement.dataset.theme = value
@@ -121,10 +131,7 @@ function forecastDateLabel(date, index) {
   const [year, month, day] = String(date || '').split('-').map(Number)
   const d = new Date(year, month - 1, day)
   const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()]
-  return {
-    week: index === 0 ? '今天' : index === 1 ? '明天' : week,
-    date: `${month}月${day}日`
-  }
+  return { week: index === 0 ? '今天' : index === 1 ? '明天' : week, date: `${month}月${day}日` }
 }
 
 function handleShortcut(event) {
@@ -132,7 +139,10 @@ function handleShortcut(event) {
     event.preventDefault()
     document.querySelector('.search-bar input')?.focus()
   }
-  if (event.key === 'Escape') forecastOpen.value = false
+  if (event.key === 'Escape') {
+    forecastOpen.value = false
+    ipOpen.value = false
+  }
 }
 
 onMounted(() => {
@@ -140,6 +150,7 @@ onMounted(() => {
   document.addEventListener('keydown', handleShortcut)
   loadConfig()
   weather.load()
+  ipProfile.load()
   latency.start()
 })
 
@@ -153,13 +164,14 @@ onBeforeUnmount(() => {
 <template>
   <main class="shell">
     <header class="topbar">
-      <div class="brand-wrap">
-        <div class="brand-mark">D</div>
-        <div>
-          <div class="brand-title">{{ title }}</div>
-          <div class="brand-subtitle">{{ subtitle }}</div>
+      <button class="ip-card" type="button" @click="ipOpen = true">
+        <div class="ip-card__flag">{{ ipProfile.data.value?.flag || '🌐' }}</div>
+        <div class="ip-card__body">
+          <div class="ip-card__country">{{ currentIpCountry }}</div>
+          <div class="ip-card__address">{{ currentIp }}</div>
         </div>
-      </div>
+        <span class="ip-card__arrow">›</span>
+      </button>
 
       <div class="top-actions">
         <button class="weather-card" type="button" @click="forecastOpen = true">
@@ -192,23 +204,11 @@ onBeforeUnmount(() => {
       <p>{{ subtitle }}</p>
 
       <SearchBar :engines="config.searchEngines || []" />
-
-      <div class="hero-meta">
-        <span class="meta-pill"><i class="live-dot"></i> 每 5 秒刷新网站访问延迟</span>
-        <span class="meta-pill">当前浏览器线路 · 最多 4 并发</span>
-        <span v-if="latency.summary.value.median" class="meta-pill">当前中位延迟 {{ latency.summary.value.median }} ms</span>
-      </div>
-
       <div v-if="configError" class="warning">{{ configError }}</div>
     </section>
 
     <section class="nav-section">
-      <div class="section-toolbar">
-        <div>
-          <div class="eyebrow">DRAGONNAV</div>
-          <h2>网站导航</h2>
-          <p>延迟由当前访问者浏览器发起，反映当前公网 IP / VPN / 代理线路的实际网站访问响应。</p>
-        </div>
+      <div class="nav-tools">
         <label class="filter-box">
           <span>⌕</span>
           <input v-model="filterText" placeholder="筛选网站或分类" />
@@ -240,6 +240,15 @@ onBeforeUnmount(() => {
       <span>© {{ new Date().getFullYear() }} {{ title }}</span>
       <span>Vue 3 · Vite · Tencent EdgeOne Makers</span>
     </footer>
+
+    <IpProfileModal
+      v-if="ipOpen"
+      :profile="ipProfile.data.value"
+      :loading="ipProfile.loading.value"
+      :error="ipProfile.error.value"
+      @close="ipOpen = false"
+      @refresh="ipProfile.load(true)"
+    />
 
     <div v-if="forecastOpen" class="modal-backdrop" @click.self="forecastOpen = false">
       <section class="forecast-modal">
