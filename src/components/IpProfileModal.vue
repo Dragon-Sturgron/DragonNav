@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import CountryFlag from './CountryFlag.vue'
 
 const props = defineProps({
   profile: { type: Object, default: null },
@@ -142,7 +143,7 @@ async function copyIp() {
     <section class="ip-modal" role="dialog" aria-modal="true" aria-label="当前 IP 详情">
       <header class="ip-modal-head">
         <div class="ip-modal-title-wrap">
-          <div class="ip-modal-flag">{{ profile?.flag || '🌐' }}</div>
+          <div class="ip-modal-flag"><CountryFlag :code="profile?.location?.countryCode" :label="countryName(profile?.location) || ''" size="large" /></div>
           <div>
             <div class="eyebrow">CURRENT NETWORK</div>
             <div class="ip-modal-title-row">

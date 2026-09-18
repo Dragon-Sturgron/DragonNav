@@ -377,3 +377,43 @@ html[data-theme='dark'] .ip-score-track > i { background: #f8fafc; box-shadow: 0
   .auto-detect-badge { min-height: 32px; padding: 7px 9px; }
   .access-toast { bottom: 16px; }
 }
+
+
+/* V6.1: 使用真实国旗图片，避免 Windows/Chrome 将旗帜 Emoji 显示为 SG/US 等字母 */
+.country-flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.country-flag img {
+  display: block;
+  width: 78%;
+  height: auto;
+  max-height: 68%;
+  object-fit: contain;
+  border-radius: 3px;
+  box-shadow: 0 1px 4px rgba(15,23,42,.14);
+}
+.country-flag__fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 20px;
+}
+.country-flag--compact img { max-width: 30px; }
+.country-flag--large img { max-width: 38px; }
+.ip-card__flag,
+.ip-modal-flag {
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+}
+.ip-card__flag .country-flag,
+.ip-modal-flag .country-flag {
+  border-radius: inherit;
+}

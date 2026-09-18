@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import SearchBar from './components/SearchBar.vue'
 import SiteCard from './components/SiteCard.vue'
 import IpProfileModal from './components/IpProfileModal.vue'
+import CountryFlag from './components/CountryFlag.vue'
 import { useLatency } from './composables/useLatency'
 import { useWeather, weatherInfo } from './composables/useWeather'
 import { useIpProfile } from './composables/useIpProfile'
@@ -247,7 +248,7 @@ onBeforeUnmount(() => {
   <main class="shell">
     <header class="topbar">
       <button class="ip-card" type="button" @click="ipOpen = true">
-        <div class="ip-card__flag">{{ ipProfile.data.value?.flag || '🌐' }}</div>
+        <div class="ip-card__flag"><CountryFlag :code="ipProfile.data.value?.location?.countryCode" :label="currentIpCountry" size="compact" /></div>
         <div class="ip-card__body">
           <div class="ip-card__country">
             {{ currentIpCountry }}

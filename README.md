@@ -1,6 +1,6 @@
-# DragonNav V6 · Vue 3 + 当前 IP 风控访问控制
+# DragonNav V6.1 · Vue 3 + 当前 IP 风控访问控制
 
-DragonNav V6 继续部署在 Tencent EdgeOne Makers，使用 Vue 3 + Vite + Edge Functions + NAV_KV。
+DragonNav V6.1 继续部署在 Tencent EdgeOne Makers，使用 Vue 3 + Vite + Edge Functions + NAV_KV。
 
 本版在 V5 基础上主要加入：
 
@@ -14,6 +14,15 @@ DragonNav V6 继续部署在 Tencent EdgeOne Makers，使用 Vue 3 + Vite + Edge
 - 仍兼容现有 NAV_KV 数据，不需要清空原导航配置。
 
 ---
+
+
+## V6.1 国旗显示修复
+
+- 首页左上角当前 IP 卡片不再使用国旗 Emoji。
+- IP 详情弹窗左上角同步改为真实国旗图片。
+- 根据 `location.countryCode` 自动加载对应国家/地区国旗。
+- 解决 Windows / Chrome 可能把 `🇸🇬` 显示成 `SG` 字母的问题。
+- 国家代码不可用或图片加载失败时显示 `🌐`。
 
 ## 1. IP 自动检测
 
@@ -279,7 +288,7 @@ https://你的域名/manage2026
 ## 10. 当前版本
 
 ```text
-DragonNav V6
+DragonNav V6.1
 Vue 3
 Vite
 Tencent EdgeOne Makers
